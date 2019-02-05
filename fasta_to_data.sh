@@ -43,15 +43,14 @@ usage : $0 <-i inputfile(.fasta)> <-b id cutoff> [-o <directory>] [-b <int(0-100
 
 	-i input file
 	-b blast identity cutoff (0 - 100), default 90
-	-l blast length percentage cutoff (0 - 100), default 50, use 90 for genes
+	-s samllest size to filter blast results, default 1000
+	-S samllest size to filter blast results, default 600000
 	-o output directory (optional). By default the file is replaced in the same location
 	-f file name
-	-s smallest size
-	-S largest size
 	-v version
 	-h display usage message
 
-example: blast_to_complete.sh -i ecoli_prefix.blast
+example: fasta_to_data.sh -i contigs.fasta -s 2000 -S 100000
 EOF
 }
 
@@ -127,11 +126,11 @@ check_dependencies() {
 #DECLARE FLAGS AND VARIABLES
 cwd="$(pwd)"
 input_file="Input_file"
-blast_id_cutoff=90
-blast_len_percentage=15
+#blast_id_cutoff=90
+#blast_len_percentage=15
 small_length=1000
-large_length=1000000
-$threads=4
+large_length=600000
+#threads=4
 
 #PARSE VARIABLE ARGUMENTS WITH getops
 #common example with letters, for long options check longopts2getopts.sh
@@ -206,12 +205,12 @@ shift $((OPTIND-1))
 echo -e "\n#Executing" $0 "\n"
 
 check_mandatory_files $input_file
-check_dependencies blastn wget curl
+check_dependencies blastn curl
 
-blast_len_percentage_value=$(echo "($blast_len_percentage/100)" | bc -l)
+#blast_len_percentage_value=$(echo "($blast_len_percentage/100)" | bc -l)
 #blast_len_percentage_decimal=$(echo $blast_len_percentage_value | sed 's/0\{1,\}$//')
 
-
+echo -e "\n"
 if [ ! $output_dir ]; then
 	output_dir=$(dirname $input_file)
 	#echo "Default output directory is" $output_dir
@@ -236,19 +235,36 @@ echo "Searching similar sequences with BLAST on" $(basename $input_file)
 blastn \
 -db nr \
 -query $input_file \
--max_target_seqs 1 \
+-max_target_seqs 5 \
+-max_hsps 1 \
+-word_size 32 \
 -remote \
--out $file_name.blast \
+-out $output_dir/$file_name".blast" \
 -outfmt "6 qseqid sacc pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen"
 
 #ssciname sskingdom
 #-num_descriptions
 #-num_alignments
+#-max_hsps
+#-max_target_seqs
+
+echo "$(date)"
+echo "Obtaining list of accession numbers to retrieve sequences"
+
+
+cat $output_dir/$file_name".blast" | awk '!x[$2]++ && $14 > '"${small_length}"' && $14 < '"${large_length}"' {print $2} '> $output_dir/$file_name".acc"
 
 
 echo "$(date)"
-echo "DONE searching similar sequences with BLAST"
+echo "Obtaining sequences using eutils"
 
+for i in $(cat $output_dir/$file_name".acc")
+	do curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&amp;id=$i&amp;retmode=text&amp;rettype=fasta"
+done > $output_dir/$file_name".nr.filtered.fasta"
+
+echo "$(date)"
+echo "DONE obtainin similar sequences filtered by size"
+echo -e "File can be found at" $output_dir/$file_name"_blast.filtered.fasta" "/n"
 
 
 
